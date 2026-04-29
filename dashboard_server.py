@@ -11,11 +11,13 @@ Ports (configurables via variables d'environnement) :
   WS   :8766  → push live vers le navigateur        (IANA : unassigned)
 
 Variables d'environnement :
-  ISAP_UDP_PORT      port UDP des Pulses           (défaut : 8767)
-  ISAP_HTTP_PORT     port HTTP du dashboard        (défaut : 8765)
-  ISAP_WS_PORT       port WebSocket live           (défaut : 8766)
-  ISAP_ARCHIVE_PATH  chemin d'archive JSONL        (défaut : "", désactivé)
-  ISAP_DATA_DIR      répertoire des données        (défaut : data/)
+  ISAP_UDP_PORT        port UDP des Pulses           (défaut : 8767)
+  ISAP_HTTP_PORT       port HTTP du dashboard        (défaut : 8765)
+  ISAP_WS_PORT         port WebSocket live           (défaut : 8766)
+  ISAP_ARCHIVE_PATH    chemin d'archive JSONL        (défaut : "", désactivé)
+  ISAP_DATA_DIR        répertoire des données        (défaut : data/)
+  ISAP_INFER_INTERVAL  secondes entre chaque inférence auto (défaut : 300)
+  ISAP_INFER_THRESHOLD seuil de corrélation xcorr    (défaut : 0.5)
 
 API REST (HTTP) :
   GET /                 → dashboard HTML
@@ -57,8 +59,10 @@ except ImportError:
 UDP_PORT     = int(os.environ.get("ISAP_UDP_PORT",  "8767"))
 HTTP_PORT    = int(os.environ.get("ISAP_HTTP_PORT", "8765"))
 WS_PORT      = int(os.environ.get("ISAP_WS_PORT",  "8766"))
-ARCHIVE_PATH = os.environ.get("ISAP_ARCHIVE_PATH", "")
-DATA_DIR     = Path(os.environ.get("ISAP_DATA_DIR", "data"))
+ARCHIVE_PATH    = os.environ.get("ISAP_ARCHIVE_PATH", "")
+DATA_DIR        = Path(os.environ.get("ISAP_DATA_DIR", "data"))
+INFER_INTERVAL  = int(os.environ.get("ISAP_INFER_INTERVAL",  "300"))   # secondes
+INFER_THRESHOLD = float(os.environ.get("ISAP_INFER_THRESHOLD", "0.5")) # seuil xcorr
 
 # Compatibilité anciennes variables
 if "ISAP_LISTEN_UDP" in os.environ:
@@ -455,6 +459,92 @@ class _ISAPHandler(BaseHTTPRequestHandler):
             _send_json(self, {"error": "not found", "path": path}, status=404)
 
 
+def _inject_edges(edges_d: dict) -> int:
+    """Injecte les liens inférés dans l'état global et broadcast WebSocket."""
+    now   = time.time()
+    added = 0
+    with state_lock:
+        # Remplace les anciens liens correlated/inferred
+        state["causal_links"] = [
+            lnk for lnk in state["causal_links"]
+            if lnk.get("evidence") == "declared"
+        ]
+        existing = {(lnk["cause"], lnk["effect"]) for lnk in state["causal_links"]}
+        for (cause, effect), d in edges_d.items():
+            if (cause, effect) in existing:
+                continue
+            lag_ms = int(d.get("lag", 0) * 1000 / 10)   # SAMPLE_HZ=10
+            state["causal_links"].append({
+                "cause":       cause,
+                "effect":      effect,
+                "cause_hlc":   {"l": 0, "c": 0},
+                "effect_hlc":  {"l": 0, "c": 0},
+                "explanation": f"{d.get('metric_x','?')} → {d.get('metric_y','?')}  lag={lag_ms}ms",
+                "ts":          now,
+                "evidence":    "correlated",
+                "confidence":  round(abs(d.get("corr", 0.5)), 3),
+                "lag_ms":      lag_ms,
+            })
+            existing.add((cause, effect))
+            added += 1
+
+        # Recalcule Tarjan
+        graph = defaultdict(list)
+        for lnk in state["causal_links"]:
+            graph[lnk["effect"]].append(lnk["cause"])
+        sccs = tarjan_scc(dict(graph))
+        state["cycles"]   = len([s for s in sccs if len(s) > 1])
+        state["sccs"]     = [s for s in sccs if len(s) > 1]
+        state["cohesion"] = compute_cohesion()
+
+    if HAS_WS and ws_loop:
+        asyncio.run_coroutine_threadsafe(_broadcast(), ws_loop)
+    return added
+
+
+def _run_auto_infer() -> None:
+    """Thread de fond : relance l'inférence causale toutes les INFER_INTERVAL secondes."""
+    # Attente initiale — laisse le temps aux agents de s'enregistrer
+    time.sleep(30)
+
+    while True:
+        archive = ARCHIVE_PATH or str(DATA_DIR / "observations.jsonl")
+        if not Path(archive).exists():
+            time.sleep(INFER_INTERVAL)
+            continue
+
+        try:
+            # Import lazy — numpy optionnel, le collecteur démarre sans lui
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).parent))
+            from causal_infer import load_pulses, build_series, infer_edges
+
+            pulses = load_pulses(archive)
+            if len(pulses) < 20:
+                time.sleep(INFER_INTERVAL)
+                continue
+
+            series    = build_series(pulses)
+            min_lag   = 3    # 300 ms à 10 Hz
+            max_lag   = 50   # 5 s
+            edges_d   = infer_edges(series, INFER_THRESHOLD, min_lag, max_lag)
+            added     = _inject_edges(edges_d)
+
+            n_nodes = len(series)
+            print(f"[INFER] {len(pulses)} pulses · {n_nodes} nœuds · "
+                  f"{len(edges_d)} lien(s) détecté(s) · {added} ajouté(s) au graphe"
+                  f"  (prochain dans {INFER_INTERVAL}s)")
+
+        except ImportError:
+            print("[INFER] numpy absent — inférence auto désactivée. "
+                  "Installez-le : pip install numpy")
+            return   # stoppe le thread proprement
+        except Exception as exc:
+            print(f"[INFER] erreur : {exc}")
+
+        time.sleep(INFER_INTERVAL)
+
+
 def _run_http() -> None:
     srv = HTTPServer(("0.0.0.0", HTTP_PORT), _ISAPHandler)
     print(f"[HTTP] Dashboard      → http://0.0.0.0:{HTTP_PORT}/")
@@ -484,8 +574,11 @@ if __name__ == "__main__":
     print("  ISAP Collector  v0.1")
     print("=" * 54)
 
-    threading.Thread(target=_run_udp,  daemon=True, name="udp").start()
-    threading.Thread(target=_run_http, daemon=True, name="http").start()
+    threading.Thread(target=_run_udp,        daemon=True, name="udp").start()
+    threading.Thread(target=_run_http,       daemon=True, name="http").start()
+    threading.Thread(target=_run_auto_infer, daemon=True, name="infer").start()
+    print(f"[INFER] Auto-inférence toutes les {INFER_INTERVAL}s "
+          f"(seuil={INFER_THRESHOLD}) — 1ère passe dans 30s")
 
     if HAS_WS:
         asyncio.run(_run_ws())

@@ -37,7 +37,7 @@ except ImportError:
 # ──────────────────────────────────────────────
 NODE_ID         = os.environ.get("ISAP_NODE_ID", socket.gethostname())
 COLLECTOR_HOST  = os.environ.get("ISAP_COLLECTOR_HOST", "collector")
-COLLECTOR_PORT  = int(os.environ.get("ISAP_COLLECTOR_PORT", "5765"))
+COLLECTOR_PORT  = int(os.environ.get("ISAP_COLLECTOR_PORT", "8767"))
 INTERVAL_S      = float(os.environ.get("ISAP_INTERVAL_S",   "1.0"))   # NORMAL cadence
 WHISPER_S       = float(os.environ.get("ISAP_WHISPER_S",    "5.0"))   # idle cadence (SPEC §7)
 STORM_S         = float(os.environ.get("ISAP_STORM_S",      "0.1"))   # critical cadence
@@ -200,9 +200,9 @@ class MetricsSampler:
 
 
 # ──────────────────────────────────────────────
-# ANOMALY / INTENT / MODE — placeholders Phase 0/1
+# ANOMALY / EVENT / INTENT / MODE
 # ──────────────────────────────────────────────
-def anomaly_score(state):
+def anomaly_score(state: dict) -> float:
     return round(
         state["cpu_pressure"]    * 0.30 +
         state["memory_pressure"] * 0.25 +
@@ -212,26 +212,84 @@ def anomaly_score(state):
         3
     )
 
-def emission_mode(state, score):
-    # Sensible par métrique : un seul axe en pression suffit à passer en NORMAL.
-    # Évite de rester en WHISPER quand cpu=0.5 mais score agrégé reste < 0.2.
+def classify_event(state: dict, score: float) -> str:
+    """Décrit ce qui se passe réellement sur ce nœud — visible dans le dashboard."""
+    cpu = state["cpu_pressure"]
+    mem = state["memory_pressure"]
+    io  = state["io_pressure"]
+    sw  = state["swap_tension"]
+    net = state["net_tension"]
+
+    if score < 0.05:
+        return "idle"
+
+    # Dominant axis — identifie la ressource sous pression
+    axes = {
+        "cpu_loaded":    cpu,
+        "mem_loaded":    mem,
+        "io_loaded":     io,
+        "swap_pressure": sw,
+        "net_saturated": net,
+    }
+    dominant, dominant_val = max(axes.items(), key=lambda x: x[1])
+
+    if dominant_val < 0.10:
+        return "idle"
+
+    if score > 0.6:
+        return f"critical_{dominant}"   # ex: "critical_cpu_loaded"
+
+    if dominant_val > 0.4:
+        return dominant                 # ex: "cpu_loaded"
+
+    return "normal"
+
+def classify_intent(state: dict, score: float) -> dict:
+    """Intent SPEC §4.3 — basé sur l'axe dominant, pas juste le score global."""
+    cpu = state["cpu_pressure"]
+    mem = state["memory_pressure"]
+    io  = state["io_pressure"]
+
+    if score < 0.05:
+        return {"class": "IDLE", "confidence": 0.95, "duration_ms": 0, "source": "inferred"}
+
+    if score > 0.6:
+        # Identifie la cause dominante
+        dominant = max(
+            [("CPU",    cpu),
+             ("MEMORY", mem),
+             ("IO",     io)],
+            key=lambda x: x[1]
+        )[0]
+        return {
+            "class":       "STRESSED",
+            "confidence":  round(min(0.9, score), 2),
+            "duration_ms": 0,
+            "source":      "inferred",
+            "dominant":    dominant,    # champ extra — aide le collecteur
+        }
+
+    # Charge modérée — quel axe ?
+    if cpu > mem and cpu > io:
+        intent_class = "NORMAL"         # traitement actif
+    elif mem > 0.5:
+        intent_class = "STRESSED"       # mémoire haute = potentiellement planifié
+    else:
+        intent_class = "NORMAL"
+
+    return {"class": intent_class, "confidence": 0.7, "duration_ms": 0, "source": "inferred"}
+
+def emission_mode(state: dict, score: float) -> str:
     m = max(state.values()) if state else 0.0
     if m > 0.5 or score > 0.5: return "STORM"
     if m > 0.1 or score > 0.2: return "NORMAL"
     return "WHISPER"
 
-def classify_intent(score):
-    if score < 0.2:
-        return {"class": "IDLE",     "confidence": 0.9, "duration_ms": 0, "source": "inferred"}
-    if score > 0.6:
-        return {"class": "STRESSED", "confidence": 0.4, "duration_ms": 0, "source": "inferred"}
-    return     {"class": "NORMAL",   "confidence": 0.6, "duration_ms": 0, "source": "inferred"}
-
 
 # ──────────────────────────────────────────────
 # PULSE (SPEC.md §4.1)
 # ──────────────────────────────────────────────
-def build_pulse(hlc_ts, state, score, mode):
+def build_pulse(hlc_ts: dict, state: dict, score: float, mode: str) -> dict:
     return {
         "protocol":      "ISAP",
         "version":       1,
@@ -240,10 +298,11 @@ def build_pulse(hlc_ts, state, score, mode):
         "cluster_id":    CLUSTER_ID,
         "hlc":           hlc_ts,
         "mode":          mode,
-        "intent":        classify_intent(score),
+        "event":         classify_event(state, score),
+        "intent":        classify_intent(state, score),
         "state":         state,
         "anomaly_score": score,
-        "hypothesis":    [],   # passif : c'est causal_infer.py qui produira les hypothèses
+        "hypothesis":    [],   # les hypothèses sont injectées par causal_infer + push
         "ts_iso":        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
