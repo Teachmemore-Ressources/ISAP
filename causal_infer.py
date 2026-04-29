@@ -546,11 +546,99 @@ def render_markdown(report: Dict) -> str:
 # ──────────────────────────────────────────────
 # MAIN
 # ──────────────────────────────────────────────
+def main_live(args, min_lag_samples: int, max_lag_samples: int) -> None:
+    """Mode production : inférence sur données réelles sans ground truth."""
+    import datetime
+
+    pulses = load_pulses(args.obs)
+    if not pulses:
+        print("[!] Aucun pulse valide trouvé dans", args.obs)
+        return
+
+    series = build_series(pulses)
+    nodes  = list(series.keys())
+
+    print("=" * 60)
+    print("  ISAP causal_infer — mode LIVE (données réelles)")
+    print(f"  méthode   : {args.method}")
+    print(f"  pulses    : {len(pulses)}")
+    print(f"  nœuds     : {nodes}")
+    print("=" * 60)
+
+    if args.method == "xcorr":
+        edges_d = infer_edges(series, args.threshold, min_lag_samples, max_lag_samples)
+    else:
+        edges_d = infer_edges_granger(series, args.f_threshold, SAMPLE_HZ)
+
+    if not edges_d:
+        print("  Aucun lien causal détecté.")
+        print("  Conseils :")
+        print("    — Collectez plus de données (au moins quelques minutes par nœud)")
+        print(f"   — Essayez un seuil plus bas : --threshold {max(0.2, args.threshold - 0.1):.1f}")
+        print("    — Vérifiez que les nœuds ont eu des variations de CPU/RAM/IO")
+    else:
+        print(f"\n  Liens causaux détectés ({len(edges_d)}) :")
+        for (a, b), d in sorted(edges_d.items()):
+            lag_ms = int(d["lag"] * 1000 / SAMPLE_HZ)
+            print(f"    {a:>15} → {b:<15}  corr={d['corr']:+.3f}  lag={lag_ms}ms"
+                  f"  ({d['metric_x']} → {d['metric_y']})")
+
+    # Sauvegarde
+    os.makedirs(os.path.dirname(args.out_edges) or ".", exist_ok=True)
+    edges_out = [[a, b, {"corr": round(d["corr"], 3),
+                         "lag_ms": int(d["lag"] * 1000 / SAMPLE_HZ),
+                         "metric_x": d["metric_x"],
+                         "metric_y": d["metric_y"]}]
+                 for (a, b), d in edges_d.items()]
+    with open(args.out_edges, "w", encoding="utf-8") as f:
+        json.dump(edges_out, f, indent=2)
+
+    # Rapport Markdown lisible
+    import datetime
+    lines = [
+        f"# ISAP — Rapport causal (données réelles)",
+        f"",
+        f"**Date**    : {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"**Fichier** : {args.obs}",
+        f"**Méthode** : {args.method}  |  seuil={args.threshold}",
+        f"**Nœuds**   : {', '.join(nodes)}",
+        f"**Pulses**  : {len(pulses)}",
+        f"",
+        f"## Liens causaux inférés",
+        f"",
+    ]
+    if edges_out:
+        lines.append("| Cause | Effet | Corrélation | Lag | Métriques |")
+        lines.append("|---|---|---|---|---|")
+        for a, b, d in edges_out:
+            lines.append(f"| {a} | {b} | {d['corr']:+.3f} | {d['lag_ms']}ms"
+                         f" | {d['metric_x']} → {d['metric_y']} |")
+    else:
+        lines.append("*Aucun lien causal détecté avec ces paramètres.*")
+        lines.append("")
+        lines.append("Essayez : `python3 causal_infer.py --live --threshold 0.3`")
+
+    lines += [
+        "",
+        "## Note",
+        "Ces résultats sont issus de données de production réelles.",
+        "Aucune ground truth disponible — pas de score P/R/F1.",
+        "Pour le benchmark synthétique : `python3 workload_gen.py --seed 42 && python3 causal_infer.py`",
+    ]
+
+    with open(args.out_report, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    print(f"\n  Écrit : {args.out_edges}")
+    print(f"          {args.out_report}")
+    print("=" * 60)
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--obs",         default="data/observations.jsonl")
     p.add_argument("--truth",       default="data/ground_truth.json")
-    p.add_argument("--method",      choices=["xcorr", "granger"], default="granger")
+    p.add_argument("--method",      choices=["xcorr", "granger"], default="xcorr")
     p.add_argument("--threshold",   type=float, default=DEFAULT_THRESHOLD)
     p.add_argument("--f-threshold", type=float, default=DEFAULT_F_THRESHOLD)
     p.add_argument("--min-lag-ms",  type=int,   default=DEFAULT_MIN_LAG_MS)
@@ -558,11 +646,21 @@ def main():
     p.add_argument("--out-metrics", default="data/metrics.json")
     p.add_argument("--out-edges",   default="data/inferred_edges.json")
     p.add_argument("--out-report",  default="Phase1_report.md")
+    p.add_argument("--live",        action="store_true",
+                   help="Mode production : pas de ground truth requis")
     args = p.parse_args()
 
     min_lag_samples = max(1, int(args.min_lag_ms / 1000 * SAMPLE_HZ))
     max_lag_samples = max(min_lag_samples + 1, int(args.max_lag_ms / 1000 * SAMPLE_HZ))
 
+    # ── Mode production (données réelles) ──────────────────────────
+    if args.live or not os.path.exists(args.truth):
+        if not args.live:
+            print(f"[info] ground truth introuvable ({args.truth}) → mode --live automatique")
+        main_live(args, min_lag_samples, max_lag_samples)
+        return
+
+    # ── Mode benchmark (données synthétiques avec ground truth) ────
     pulses = load_pulses(args.obs)
     gt     = load_ground_truth(args.truth)
 
