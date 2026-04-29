@@ -389,6 +389,71 @@ class _ISAPHandler(BaseHTTPRequestHandler):
         else:
             _send_json(self, {"error": "not found", "path": path}, status=404)
 
+    def do_POST(self):
+        path = self.path.split("?")[0].rstrip("/")
+
+        # ── POST /api/v1/edges — injecte des liens causaux inférés ──
+        if path == "/api/v1/edges":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body   = self.rfile.read(length)
+                edges  = json.loads(body.decode("utf-8"))
+                if not isinstance(edges, list):
+                    _send_json(self, {"error": "expected a JSON array"}, status=400)
+                    return
+            except Exception as e:
+                _send_json(self, {"error": str(e)}, status=400)
+                return
+
+            now = time.time()
+            added = 0
+            with state_lock:
+                # Retire les anciens liens "correlated"/"inferred" (remplacés)
+                state["causal_links"] = [
+                    lnk for lnk in state["causal_links"]
+                    if lnk.get("evidence") == "declared"
+                ]
+                existing = {(lnk["cause"], lnk["effect"]) for lnk in state["causal_links"]}
+                for e in edges:
+                    cause = e.get("cause") or e.get("source")
+                    effect = e.get("effect") or e.get("target")
+                    if not cause or not effect:
+                        continue
+                    if (cause, effect) in existing:
+                        continue
+                    state["causal_links"].append({
+                        "cause":      cause,
+                        "effect":     effect,
+                        "cause_hlc":  {"l": 0, "c": 0},
+                        "effect_hlc": {"l": 0, "c": 0},
+                        "explanation": e.get("explanation", ""),
+                        "ts":         now,
+                        "evidence":   e.get("evidence", "correlated"),
+                        "confidence": float(e.get("confidence", 0.5)),
+                        "lag_ms":     e.get("lag_ms", 0),
+                    })
+                    existing.add((cause, effect))
+                    added += 1
+
+                # Recalcule Tarjan
+                graph = defaultdict(list)
+                for lnk in state["causal_links"]:
+                    graph[lnk["effect"]].append(lnk["cause"])
+                sccs = tarjan_scc(dict(graph))
+                state["cycles"] = len([s for s in sccs if len(s) > 1])
+                state["sccs"]   = [s for s in sccs if len(s) > 1]
+                state["cohesion"] = compute_cohesion()
+
+            # Broadcast WebSocket
+            if HAS_WS and ws_loop:
+                asyncio.run_coroutine_threadsafe(_broadcast(), ws_loop)
+
+            _send_json(self, {"ok": True, "added": added,
+                              "total_links": len(state["causal_links"])})
+
+        else:
+            _send_json(self, {"error": "not found", "path": path}, status=404)
+
 
 def _run_http() -> None:
     srv = HTTPServer(("0.0.0.0", HTTP_PORT), _ISAPHandler)

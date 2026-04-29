@@ -631,7 +631,41 @@ def main_live(args, min_lag_samples: int, max_lag_samples: int) -> None:
 
     print(f"\n  Écrit : {args.out_edges}")
     print(f"          {args.out_report}")
+
+    # ── Push vers le collecteur ────────────────────────────────────
+    if args.push and edges_out:
+        _push_edges(args.push, edges_out)
+
     print("=" * 60)
+
+
+def _push_edges(collector_url: str, edges_out: list) -> None:
+    """Envoie les liens inférés au collecteur via POST /api/v1/edges."""
+    import urllib.request
+    url = collector_url.rstrip("/") + "/api/v1/edges"
+    payload = [
+        {
+            "cause":      a,
+            "effect":     b,
+            "confidence": d["corr"],
+            "evidence":   "correlated",
+            "lag_ms":     d["lag_ms"],
+            "explanation": f"{d['metric_x']} → {d['metric_y']}  lag={d['lag_ms']}ms",
+        }
+        for a, b, d in edges_out
+    ]
+    body = json.dumps(payload).encode("utf-8")
+    req  = urllib.request.Request(url, data=body,
+                                  headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            result = json.loads(resp.read().decode())
+            print(f"\n  Push → {url}")
+            print(f"  Liens ajoutés au dashboard : {result.get('added', '?')}")
+            print(f"  Total liens dans le graphe : {result.get('total_links', '?')}")
+    except Exception as e:
+        print(f"\n  [!] Push échoué ({url}) : {e}")
+        print("      Vérifiez que le collecteur tourne et que l'URL est correcte.")
 
 
 def main():
@@ -648,6 +682,8 @@ def main():
     p.add_argument("--out-report",  default="Phase1_report.md")
     p.add_argument("--live",        action="store_true",
                    help="Mode production : pas de ground truth requis")
+    p.add_argument("--push",        default="",
+                   help="Pousse les liens vers le collecteur, ex: http://localhost:8765")
     args = p.parse_args()
 
     min_lag_samples = max(1, int(args.min_lag_ms / 1000 * SAMPLE_HZ))
