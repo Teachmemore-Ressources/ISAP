@@ -59,8 +59,21 @@ SAMPLE_HZ_TARGET   = 1     # Phase 2 cadence = 1 Hz (NORMAL)
 
 
 def load_jsonl(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return [json.loads(l) for l in f if l.strip()]
+    rows, skipped = [], 0
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                if isinstance(obj, dict):
+                    rows.append(obj)
+            except json.JSONDecodeError:
+                skipped += 1
+    if skipped:
+        print(f"[warn] {skipped} ligne(s) ignorée(s) (non-JSON)")
+    return rows
 
 
 def slice_window(pulses, t_start, t_end, margin_ms):

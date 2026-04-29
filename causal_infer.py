@@ -58,12 +58,20 @@ GRANGER_LAGS_S      = [0.3, 0.5, 1.0, 1.5, 2.0, 3.0]  # secondes
 # I/O
 # ──────────────────────────────────────────────
 def load_pulses(path: str) -> List[Dict]:
-    pulses = []
-    with open(path, "r", encoding="utf-8") as f:
+    pulses, skipped = [], 0
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
-            if line:
-                pulses.append(json.loads(line))
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                if isinstance(obj, dict):
+                    pulses.append(obj)
+            except json.JSONDecodeError:
+                skipped += 1
+    if skipped:
+        print(f"[warn] {skipped} ligne(s) ignorée(s) (non-JSON)")
     return pulses
 
 
