@@ -1,0 +1,48 @@
+[Unit]
+Description=ISAP Agent — collecteur de métriques local
+Documentation=https://github.com/yourname/isap
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=isap
+Group=isap
+WorkingDirectory=/opt/isap
+ExecStart=/opt/isap/venv/bin/python /opt/isap/agent.py
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=10s
+
+# ── À personnaliser pour chaque machine ─────────────────
+# Option 1 : éditer directement ce fichier
+# Option 2 : systemctl edit isap-agent  (crée un override sans modifier ce fichier)
+
+# Identité du nœud (obligatoire — doit être unique dans le cluster)
+Environment=ISAP_NODE_ID=my-node
+
+# Adresse du collecteur central (où tourne dashboard_server.py)
+Environment=ISAP_COLLECTOR_HOST=127.0.0.1
+Environment=ISAP_COLLECTOR_PORT=9999
+
+# Cadence d'émission
+# WHISPER : nœud idle  → toutes les 5s
+# NORMAL  : activité   → toutes les 1s
+# STORM   : critique   → toutes les 0.1s
+Environment=ISAP_INTERVAL_S=1.0
+Environment=ISAP_WHISPER_S=5.0
+Environment=ISAP_STORM_S=0.1
+
+# Logs
+StandardOutput=append:/var/log/isap/agent.log
+StandardError=append:/var/log/isap/agent.log
+
+# Durcissement sécurité
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/isap
+
+[Install]
+WantedBy=multi-user.target

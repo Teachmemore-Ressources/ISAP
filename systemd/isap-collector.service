@@ -1,0 +1,38 @@
+[Unit]
+Description=ISAP Collector — Dashboard HTTP + UDP receiver
+Documentation=https://github.com/yourname/isap
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=isap
+Group=isap
+WorkingDirectory=/opt/isap
+ExecStart=/opt/isap/venv/bin/python /opt/isap/dashboard_server.py
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=20s
+
+# Ports (modifier ici ou via systemctl edit isap-collector)
+Environment=ISAP_HTTP_PORT=9000
+Environment=ISAP_WS_PORT=9001
+Environment=ISAP_UDP_PORT=9999
+
+# Stockage
+Environment=ISAP_ARCHIVE_PATH=/var/lib/isap/observations.jsonl
+Environment=ISAP_DATA_DIR=/var/lib/isap
+
+# Logs
+StandardOutput=append:/var/log/isap/collector.log
+StandardError=append:/var/log/isap/collector.log
+
+# Durcissement sécurité
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/isap /var/log/isap
+
+[Install]
+WantedBy=multi-user.target
