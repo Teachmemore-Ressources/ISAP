@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+title: "ISAP: Intent-State Awareness Protocol"
+message: "If you use ISAP in academic work, please cite this repository."
+type: software
+version: "0.1.0"
+date-released: 2026-04-29
+license: MIT
+abstract: >-
+  ISAP is an open wire-format protocol for transporting causal hypotheses,
+  operational intent, and state vectors between observed nodes and a central
+  collector. It complements OpenTelemetry by carrying causality that does not
+  flow through RPC context, and uses Hybrid Logical Clocks for cross-node
+  ordering. The reference implementation includes a 3-phase benchmark
+  comparing cross-correlation, transfer entropy, and conditional Granger
+  causality.
+keywords:
+  - distributed-systems
+  - observability
+  - causal-inference
+  - hybrid-logical-clocks
+  - protocol-design
+authors:
+  - given-names: ISAP authors

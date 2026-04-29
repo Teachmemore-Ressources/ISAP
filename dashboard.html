@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ISAP — Infrastructure Intelligence</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #0a0c10;
+  --bg2:      #0f1218;
+  --bg3:      #161b24;
+  --border:   #1e2530;
+  --border2:  #2a3340;
+  --text:     #c8d0dc;
+  --text2:    #6b7a8d;
+  --text3:    #3d4857;
+  --green:    #00d68f;
+  --green2:   #007a52;
+  --amber:    #f5a623;
+  --amber2:   #7a5010;
+  --red:      #ff4757;
+  --red2:     #7a1f28;
+  --blue:     #4a9eff;
+  --blue2:    #1a3d6b;
+  --purple:   #8b5cf6;
+  --mono:     'IBM Plex Mono', monospace;
+  --sans:     'IBM Plex Sans', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Scanline overlay ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Header ── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-mark {
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid var(--green);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.logo-mark::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--green);
+  border-radius: 50%;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.6); }
+}
+
+.logo-text {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  color: #fff;
+}
+
+.logo-sub {
+  font-size: 10px;
+  color: var(--text2);
+  letter-spacing: 0.05em;
+  font-family: var(--mono);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.ws-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text2);
+}
+
+.ws-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text3);
+  transition: background 0.3s;
+}
+
+.ws-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.ws-dot.error { background: var(--red); }
+
+.ts {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text3);
+}
+
+/* ── Layout ── */
+.main {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: auto auto auto;
+  gap: 1px;
+  background: var(--border);
+  min-height: calc(100vh - 57px);
+}
+
+.panel {
+  background: var(--bg);
+  padding: 18px 20px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.panel-title {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  color: var(--text2);
+  text-transform: uppercase;
+}
+
+.panel-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 2px;
+  border: 1px solid;
+}
+
+.badge-ok    { color: var(--green); border-color: var(--green2); background: rgba(0,214,143,0.05); }
+.badge-warn  { color: var(--amber); border-color: var(--amber2); background: rgba(245,166,35,0.05); }
+.badge-err   { color: var(--red);   border-color: var(--red2);   background: rgba(255,71,87,0.05); }
+.badge-info  { color: var(--blue);  border-color: var(--blue2);  background: rgba(74,158,255,0.05); }
+
+/* ── Metrics strip ── */
+.metrics-strip {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 1px;
+  background: var(--border);
+}
+
+.metric {
+  background: var(--bg2);
+  padding: 14px 18px;
+  position: relative;
+  overflow: hidden;
+}
+
+.metric::before {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--green);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.6s ease;
+}
+
+.metric.has-data::before { transform: scaleX(1); }
+
+.metric-val {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 500;
+  color: #fff;
+  line-height: 1;
+  margin-bottom: 4px;
+  transition: color 0.3s;
+}
+
+.metric-val.warn { color: var(--amber); }
+.metric-val.err  { color: var(--red); }
+.metric-val.ok   { color: var(--green); }
+
+.metric-lbl {
+  font-size: 10px;
+  color: var(--text2);
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── Node cards ── */
+.nodes-panel { grid-column: 1 / 2; grid-row: 2 / 4; }
+
+.node-card {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 14px;
+  margin-bottom: 10px;
+  position: relative;
+  transition: border-color 0.3s;
+}
+
+.node-card.storm  { border-color: var(--red2);   background: rgba(255,71,87,0.03); }
+.node-card.normal { border-color: var(--border2); }
+.node-card.whisper{ border-color: var(--border);  }
+.node-card.silent { border-color: var(--text3); opacity: 0.5; }
+
+.node-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.node-id {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+}
+
+.node-event {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text2);
+  margin-top: 2px;
+}
+
+.node-mode {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 2px;
+}
+
+.mode-storm   { background: var(--red2);   color: var(--red); }
+.mode-normal  { background: rgba(74,158,255,0.1); color: var(--blue); }
+.mode-whisper { background: var(--bg3); color: var(--text2); }
+
+.node-hlc {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3);
+  margin-bottom: 10px;
+}
+
+.bars { display: flex; flex-direction: column; gap: 6px; }
+
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar-lbl {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text2);
+  width: 30px;
+  flex-shrink: 0;
+}
+
+.bar-track {
+  flex: 1;
+  height: 4px;
+  background: var(--bg3);
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  transition: width 0.5s ease;
+  border-radius: 0;
+}
+
+.bar-cpu  { background: var(--red); }
+.bar-mem  { background: var(--amber); }
+.bar-io   { background: var(--blue); }
+
+.bar-val {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text2);
+  width: 32px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.score-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.score-label { font-size: 10px; color: var(--text2); font-family: var(--mono); }
+.score-val {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.3s;
+}
+
+/* ── Causal graph ── */
+.graph-panel { grid-column: 2 / 3; grid-row: 2 / 3; }
+
+.graph-svg-wrap {
+  position: relative;
+  width: 100%;
+  height: 220px;
+}
+
+#causal-svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* ── HLC Timeline ── */
+.hlc-panel { grid-column: 3 / 4; grid-row: 2 / 3; }
+
+.hlc-stream {
+  height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+
+.hlc-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  animation: slide-in 0.2s ease;
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.hlc-ts   { font-family: var(--mono); font-size: 10px; color: var(--text3); flex-shrink: 0; width: 55px; }
+.hlc-node { font-family: var(--mono); font-size: 10px; font-weight: 500; flex-shrink: 0; width: 50px; }
+.hlc-clock{ font-family: var(--mono); font-size: 10px; color: var(--blue); flex-shrink: 0; }
+.hlc-ev   { font-family: var(--mono); font-size: 10px; color: var(--text2); flex: 1; }
+.hlc-causal { color: var(--green); font-size: 9px; }
+
+/* ── Log panel ── */
+.log-panel { grid-column: 2 / 4; grid-row: 3 / 4; }
+
+.log-stream {
+  height: 180px;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+
+.log-line {
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(30,37,48,0.5);
+  display: flex;
+  gap: 10px;
+  animation: slide-in 0.2s ease;
+}
+
+.log-ts   { color: var(--text3); flex-shrink: 0; }
+.log-node { font-weight: 500; flex-shrink: 0; width: 55px; }
+.log-ev   { flex-shrink: 0; width: 140px; }
+.log-as   { flex-shrink: 0; }
+.log-info { color: var(--text2); flex: 1; font-size: 10px; }
+
+.col-ok   { color: var(--green); }
+.col-warn { color: var(--amber); }
+.col-err  { color: var(--red); }
+.col-info { color: var(--blue); }
+
+/* ── Cohesion ring ── */
+.cohesion-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.ring-svg { width: 80px; height: 80px; }
+
+/* ── Tarjan SCC alert ── */
+.scc-alert {
+  background: rgba(255,71,87,0.08);
+  border: 1px solid var(--red2);
+  border-radius: 3px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--red);
+  display: none;
+}
+
+.scc-alert.visible { display: block; }
+
+/* ── Scrollbar style ── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark"></div>
+    <div>
+      <div class="logo-text">ISAP</div>
+      <div class="logo-sub">Intent-State Awareness Protocol</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="ws-status">
+      <div class="ws-dot" id="ws-dot"></div>
+      <span id="ws-label">disconnected</span>
+    </div>
+    <div class="ts" id="clock">--:--:--</div>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- Metrics strip -->
+  <div class="metrics-strip">
+    <div class="metric" id="m-pulses">
+      <div class="metric-val" id="v-pulses">0</div>
+      <div class="metric-lbl">Pulses</div>
+    </div>
+    <div class="metric" id="m-nodes">
+      <div class="metric-val" id="v-nodes">0</div>
+      <div class="metric-lbl">Nœuds</div>
+    </div>
+    <div class="metric" id="m-links">
+      <div class="metric-val" id="v-links">0</div>
+      <div class="metric-lbl">Liens causaux</div>
+    </div>
+    <div class="metric" id="m-cycles">
+      <div class="metric-val" id="v-cycles">0</div>
+      <div class="metric-lbl">Cycles Tarjan</div>
+    </div>
+    <div class="metric" id="m-violations">
+      <div class="metric-val" id="v-violations">0</div>
+      <div class="metric-lbl">Violations HLC</div>
+    </div>
+    <div class="metric" id="m-cohesion">
+      <div class="metric-val ok" id="v-cohesion">1.000</div>
+      <div class="metric-lbl">Cohésion cluster</div>
+    </div>
+  </div>
+
+  <!-- Nodes panel -->
+  <div class="panel nodes-panel">
+    <div class="panel-header">
+      <span class="panel-title">Nœuds actifs</span>
+      <span class="panel-badge badge-info" id="node-count-badge">0 nodes</span>
+    </div>
+    <div id="scc-alert" class="scc-alert"></div>
+    <div id="nodes-container"></div>
+  </div>
+
+  <!-- Causal graph -->
+  <div class="panel graph-panel">
+    <div class="panel-header">
+      <span class="panel-title">Graphe causal</span>
+      <span class="panel-badge badge-ok" id="graph-status">acyclique</span>
+    </div>
+    <div class="graph-svg-wrap">
+      <svg id="causal-svg" viewBox="0 0 300 200"></svg>
+    </div>
+  </div>
+
+  <!-- HLC timeline -->
+  <div class="panel hlc-panel">
+    <div class="panel-header">
+      <span class="panel-title">Flux HLC</span>
+      <span class="panel-badge badge-info">Hybrid Logical Clock</span>
+    </div>
+    <div class="hlc-stream" id="hlc-stream"></div>
+  </div>
+
+  <!-- Log panel -->
+  <div class="panel log-panel">
+    <div class="panel-header">
+      <span class="panel-title">Journal événements</span>
+      <span class="panel-badge badge-ok" id="log-badge">live</span>
+    </div>
+    <div class="log-stream" id="log-stream"></div>
+  </div>
+
+</div>
+
+<script>
+const WS_URL = `ws://${location.hostname}:8765`;
+let ws = null;
+let reconnectTimer = null;
+let lastData = null;
+
+// ── Clock ──────────────────────────────────
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toTimeString().slice(0,8);
+}, 1000);
+
+// ── WebSocket ──────────────────────────────
+function connect() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    document.getElementById('ws-dot').className = 'ws-dot connected';
+    document.getElementById('ws-label').textContent = 'connected';
+    clearTimeout(reconnectTimer);
+  };
+
+  ws.onclose = () => {
+    document.getElementById('ws-dot').className = 'ws-dot error';
+    document.getElementById('ws-label').textContent = 'reconnecting…';
+    reconnectTimer = setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => {};
+
+  ws.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      lastData = data;
+      render(data);
+    } catch {}
+  };
+}
+
+// ── Render ─────────────────────────────────
+function render(data) {
+  // Metrics
+  const pulses = data.pulses || 0;
+  const nodes  = Object.keys(data.nodes || {}).length;
+  const links  = (data.causal_links || []).length;
+  const cycles = data.cycles || 0;
+  const viols  = data.violations || 0;
+  const cc     = data.cohesion ?? 1.0;
+
+  setMetric('v-pulses',     pulses, null);
+  setMetric('v-nodes',      nodes, null);
+  setMetric('v-links',      links, null);
+  setMetric('v-cycles',     cycles, cycles > 0 ? 'err' : null);
+  setMetric('v-violations', viols, viols > 0 ? 'warn' : null);
+  setMetric('v-cohesion',   cc.toFixed(3), cc < 0.5 ? 'err' : cc < 0.8 ? 'warn' : 'ok');
+
+  ['m-pulses','m-nodes','m-links','m-cycles','m-violations','m-cohesion']
+    .forEach(id => document.getElementById(id).classList.add('has-data'));
+
+  // Node count badge
+  document.getElementById('node-count-badge').textContent = `${nodes} node${nodes !== 1 ? 's' : ''}`;
+
+  // SCC Alert
+  const sccEl = document.getElementById('scc-alert');
+  if (data.sccs && data.sccs.length > 0) {
+    sccEl.className = 'scc-alert visible';
+    sccEl.textContent = `⚠ CYCLE DÉTECTÉ — SCC: {${data.sccs[0].join(', ')}} — co-dépendance mutuelle`;
+    document.getElementById('graph-status').textContent = 'cycle!';
+    document.getElementById('graph-status').className = 'panel-badge badge-err';
+  } else {
+    sccEl.className = 'scc-alert';
+    document.getElementById('graph-status').textContent = 'acyclique';
+    document.getElementById('graph-status').className = 'panel-badge badge-ok';
+  }
+
+  // Nodes
+  renderNodes(data.nodes || {});
+
+  // Graph
+  renderGraph(data.nodes || {}, data.causal_links || [], data.sccs || []);
+
+  // Log
+  renderLog(data.history || []);
+
+  // HLC stream
+  renderHLC(data.history || []);
+}
+
+function setMetric(id, val, cls) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = val;
+  el.className = 'metric-val' + (cls ? ' ' + cls : '');
+}
+
+// ── Nodes ──────────────────────────────────
+function renderNodes(nodes) {
+  const container = document.getElementById('nodes-container');
+  const existing = {};
+  container.querySelectorAll('.node-card').forEach(el => {
+    existing[el.dataset.node] = el;
+  });
+
+  Object.entries(nodes).forEach(([id, node]) => {
+    const mode  = (node.mode || 'NORMAL').toLowerCase();
+    const score = node.score || 0;
+    const st    = node.state || {};
+    const silent = (node.last_seen || 0) > 5;
+
+    let card = existing[id];
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'node-card';
+      card.dataset.node = id;
+      card.innerHTML = `
+        <div class="node-top">
+          <div>
+            <div class="node-id">${id}</div>
+            <div class="node-event"></div>
+          </div>
+          <div class="node-mode"></div>
+        </div>
+        <div class="node-hlc"></div>
+        <div class="bars">
+          <div class="bar-row">
+            <span class="bar-lbl">CPU</span>
+            <div class="bar-track"><div class="bar-fill bar-cpu" style="width:0%"></div></div>
+            <span class="bar-val">0%</span>
+          </div>
+          <div class="bar-row">
+            <span class="bar-lbl">MEM</span>
+            <div class="bar-track"><div class="bar-fill bar-mem" style="width:0%"></div></div>
+            <span class="bar-val">0%</span>
+          </div>
+          <div class="bar-row">
+            <span class="bar-lbl">IO</span>
+            <div class="bar-track"><div class="bar-fill bar-io" style="width:0%"></div></div>
+            <span class="bar-val">0%</span>
+          </div>
+        </div>
+        <div class="score-line">
+          <span class="score-label">anomaly score</span>
+          <span class="score-val"></span>
+        </div>`;
+      container.appendChild(card);
+    }
+
+    card.className = `node-card ${silent ? 'silent' : mode}`;
+    card.querySelector('.node-event').textContent = node.event || '—';
+    card.querySelector('.node-mode').textContent  = node.mode || 'NORMAL';
+    card.querySelector('.node-mode').className     = `node-mode mode-${mode}`;
+    card.querySelector('.node-hlc').textContent   =
+      `HLC = (${(node.hlc?.l || 0) % 100000}, ${node.hlc?.c || 0})`;
+
+    const bars = card.querySelectorAll('.bar-fill');
+    const vals = card.querySelectorAll('.bar-val');
+    const keys = ['cpu_pressure','memory_pressure','io_pressure'];
+    keys.forEach((k, i) => {
+      const v = st[k] || 0;
+      bars[i].style.width = Math.round(v * 100) + '%';
+      vals[i].textContent = Math.round(v * 100) + '%';
+    });
+
+    const sv  = card.querySelector('.score-val');
+    sv.textContent = score.toFixed(3);
+    sv.style.color = score > 0.6 ? 'var(--red)' : score > 0.2 ? 'var(--amber)' : 'var(--green)';
+  });
+
+  // Supprimer les nœuds disparus
+  Object.keys(existing).forEach(id => {
+    if (!nodes[id]) existing[id].remove();
+  });
+}
+
+// ── Causal graph SVG ───────────────────────
+function renderGraph(nodes, links, sccs) {
+  const svg = document.getElementById('causal-svg');
+  const nodeIds = Object.keys(nodes);
+  if (!nodeIds.length) { svg.innerHTML = ''; return; }
+
+  const W = 300, H = 200;
+  const cycleNodes = new Set(sccs.flat());
+
+  // Position des nœuds en cercle
+  const positions = {};
+  nodeIds.forEach((id, i) => {
+    const angle = (i / nodeIds.length) * Math.PI * 2 - Math.PI / 2;
+    const r = Math.min(W, H) * 0.32;
+    positions[id] = {
+      x: W/2 + r * Math.cos(angle),
+      y: H/2 + r * Math.sin(angle)
+    };
+  });
+
+  let svgContent = '';
+
+  // Définitions (marqueur flèche)
+  svgContent += `<defs>
+    <marker id="arrow-ok" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#4a9eff" opacity="0.7"/>
+    </marker>
+    <marker id="arrow-cycle" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#ff4757"/>
+    </marker>
+  </defs>`;
+
+  // Liens causaux
+  links.forEach(link => {
+    const from = positions[link.cause];
+    const to   = positions[link.effect];
+    if (!from || !to) return;
+    const isCycle = cycleNodes.has(link.cause) && cycleNodes.has(link.effect);
+    const color = isCycle ? '#ff4757' : '#4a9eff';
+    const marker = isCycle ? 'arrow-cycle' : 'arrow-ok';
+    // Courbe légère
+    const mx = (from.x + to.x) / 2 + (to.y - from.y) * 0.15;
+    const my = (from.y + to.y) / 2 - (to.x - from.x) * 0.15;
+    svgContent += `<path d="M${from.x},${from.y} Q${mx},${my} ${to.x},${to.y}"
+      fill="none" stroke="${color}" stroke-width="1.5" opacity="0.7"
+      marker-end="url(#${marker})"/>`;
+  });
+
+  // Nœuds
+  nodeIds.forEach(id => {
+    const pos   = positions[id];
+    const node  = nodes[id];
+    const score = node.score || 0;
+    const isCyc = cycleNodes.has(id);
+    const color = isCyc ? '#ff4757' : score > 0.6 ? '#ff4757' : score > 0.2 ? '#f5a623' : '#00d68f';
+    const bgCol = isCyc ? 'rgba(255,71,87,0.15)' : score > 0.6 ? 'rgba(255,71,87,0.1)' : 'rgba(0,214,143,0.08)';
+
+    svgContent += `
+      <circle cx="${pos.x}" cy="${pos.y}" r="22" fill="${bgCol}" stroke="${color}" stroke-width="1.5"/>
+      <text x="${pos.x}" y="${pos.y - 3}" text-anchor="middle" font-family="IBM Plex Mono,monospace"
+        font-size="9" fill="${color}" font-weight="500">${id.replace('node_', '')}</text>
+      <text x="${pos.x}" y="${pos.y + 8}" text-anchor="middle" font-family="IBM Plex Mono,monospace"
+        font-size="8" fill="rgba(255,255,255,0.5)">${score.toFixed(2)}</text>`;
+  });
+
+  svg.innerHTML = svgContent;
+}
+
+// ── Log ────────────────────────────────────
+let logSeen = new Set();
+
+function renderLog(history) {
+  const container = document.getElementById('log-stream');
+  let added = false;
+
+  history.slice(0, 20).reverse().forEach(entry => {
+    const key = entry.ts + entry.node + entry.event;
+    if (logSeen.has(key)) return;
+    logSeen.add(key);
+    if (logSeen.size > 500) logSeen = new Set([...logSeen].slice(-200));
+
+    const score = entry.score || 0;
+    const scoreColor = score > 0.6 ? 'col-err' : score > 0.2 ? 'col-warn' : 'col-ok';
+    const nodeColor  = entry.node === 'node_a' ? 'col-info' : 'col-ok';
+
+    const div = document.createElement('div');
+    div.className = 'log-line';
+    div.innerHTML = `
+      <span class="log-ts">${entry.ts}</span>
+      <span class="log-node ${nodeColor}">${entry.node}</span>
+      <span class="log-ev">${(entry.event || '').padEnd(18,' ')}</span>
+      <span class="log-as ${scoreColor}">AS=${score.toFixed(3)}</span>
+      <span class="log-info">${entry.caused_by ? `← ${entry.caused_by}` : ''} ${entry.explanation || ''}</span>`;
+    container.insertBefore(div, container.firstChild);
+    added = true;
+  });
+}
+
+// ── HLC stream ─────────────────────────────
+let hlcSeen = new Set();
+
+function renderHLC(history) {
+  const container = document.getElementById('hlc-stream');
+
+  history.slice(0, 10).reverse().forEach(entry => {
+    const key = `${entry.ts}${entry.node}${entry.hlc_l}${entry.hlc_c}`;
+    if (hlcSeen.has(key)) return;
+    hlcSeen.add(key);
+    if (hlcSeen.size > 300) hlcSeen = new Set([...hlcSeen].slice(-100));
+
+    const nodeColor = entry.node === 'node_a' ? '#4a9eff' : '#00d68f';
+    const div = document.createElement('div');
+    div.className = 'hlc-entry';
+    div.innerHTML = `
+      <span class="hlc-ts">${entry.ts}</span>
+      <span class="hlc-node" style="color:${nodeColor}">${entry.node}</span>
+      <span class="hlc-clock">(${entry.hlc_l},${entry.hlc_c})</span>
+      <span class="hlc-ev">${entry.event}${entry.caused_by ? ' <span class="hlc-causal">← ' + entry.caused_by + '</span>' : ''}</span>`;
+    container.insertBefore(div, container.firstChild);
+  });
+}
+
+// ── Démarrage ──────────────────────────────
+connect();
+</script>
+</body>
+</html>

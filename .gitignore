@@ -1,0 +1,39 @@
+# Generated data (regeneratable via workload_gen.py + scenario_runner.py)
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local Claude/agent artifacts
+.claude/
+.cursor/
+
+# Docker volumes (if mounted locally)
+volumes/
+
+# Test artifacts
+.coverage
+htmlcov/

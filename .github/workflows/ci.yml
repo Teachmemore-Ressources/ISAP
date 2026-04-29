@@ -1,0 +1,50 @@
+name: ISAP CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  hlc-tests:
+    name: HLC property tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python test_hlc.py
+
+  phase1-benchmark:
+    name: Phase 1 reproducibility (synthetic, ~30s)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Generate synthetic dataset (seed=42)
+        run: python workload_gen.py --seed 42
+      - name: Run xcorr causal inference
+        run: python causal_infer.py --method xcorr
+      - name: Assert Phase 1 gate (F1 ≥ 0.7)
+        run: |
+          python - <<'EOF'
+          import json, sys
+          m = json.load(open('data/metrics.json'))
+          assert m['phase1_gate_pass'], f"Phase 1 gate FAILED: F1={m['overall']['f1']}"
+          print(f"Phase 1 gate PASS — F1={m['overall']['f1']}")
+          EOF
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-reports
+          path: |
+            Phase1_report.md
+            data/metrics.json
+            data/inferred_edges.json

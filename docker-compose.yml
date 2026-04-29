@@ -1,0 +1,86 @@
+# ISAP Phase 2 — banc Docker Compose
+# 3 agents passifs + 1 collecteur sur un réseau bridge dédié.
+# Les agents émettent leurs vrais métriques psutil vers le collecteur en UDP.
+# Le collecteur archive les pulses dans data/observations_phase2.jsonl
+# pour analyse offline par causal_infer.py.
+
+name: isap
+
+networks:
+  isap_net:
+    driver: bridge
+
+services:
+  collector:
+    image: python:3.12-slim
+    container_name: isap_collector
+    hostname: collector
+    networks: [isap_net]
+    ports:
+      - "5765:5765/udp"   # ISAP wire (depuis l'hôte si besoin)
+      - "8765:8765/tcp"   # WebSocket dashboard (browse: dashboard.html)
+    volumes:
+      - ./:/isap                           # source live (dashboard_server.py)
+      - ./data:/isap/data                  # archives + métriques
+    working_dir: /isap
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ISAP_ARCHIVE_PATH=/isap/data/observations_phase2.jsonl
+    command: >
+      bash -c "pip install --quiet --no-cache-dir websockets &&
+               echo '[collector] starting' &&
+               python3 -u dashboard_server.py"
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.sendto(b'',('127.0.0.1',5765))"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  agent_a:
+    build: .
+    container_name: isap_agent_a
+    hostname: agent_a
+    networks: [isap_net]
+    environment:
+      - ISAP_NODE_ID=agent_a
+      - ISAP_COLLECTOR_HOST=collector
+      - ISAP_COLLECTOR_PORT=5765
+      - ISAP_INTERVAL_S=1.0
+      - ISAP_WHISPER_S=1.0      # forcé en Phase 2 pour cadence homogène
+      - ISAP_STORM_S=0.2
+    depends_on:
+      collector: { condition: service_started }
+    cap_add: [SYS_NICE]    # stress-ng demande SYS_NICE pour certains tests
+
+  agent_b:
+    build: .
+    container_name: isap_agent_b
+    hostname: agent_b
+    networks: [isap_net]
+    environment:
+      - ISAP_NODE_ID=agent_b
+      - ISAP_COLLECTOR_HOST=collector
+      - ISAP_COLLECTOR_PORT=5765
+      - ISAP_INTERVAL_S=1.0
+      - ISAP_WHISPER_S=1.0      # forcé en Phase 2 pour cadence homogène
+      - ISAP_STORM_S=0.2
+    depends_on:
+      collector: { condition: service_started }
+    cap_add: [SYS_NICE]
+
+  agent_c:
+    build: .
+    container_name: isap_agent_c
+    hostname: agent_c
+    networks: [isap_net]
+    environment:
+      - ISAP_NODE_ID=agent_c
+      - ISAP_COLLECTOR_HOST=collector
+      - ISAP_COLLECTOR_PORT=5765
+      - ISAP_INTERVAL_S=1.0
+      - ISAP_WHISPER_S=1.0      # forcé en Phase 2 pour cadence homogène
+      - ISAP_STORM_S=0.2
+    depends_on:
+      collector: { condition: service_started }
+    cap_add: [SYS_NICE]
