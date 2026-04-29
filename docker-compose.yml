@@ -1,8 +1,11 @@
 # ISAP Phase 2 — banc Docker Compose
 # 3 agents passifs + 1 collecteur sur un réseau bridge dédié.
 # Les agents émettent leurs vrais métriques psutil vers le collecteur en UDP.
-# Le collecteur archive les pulses dans data/observations_phase2.jsonl
-# pour analyse offline par causal_infer.py.
+#
+# Ports IANA unassigned (https://www.iana.org/assignments/service-names-port-numbers) :
+#   HTTP :8765  → dashboard web + API REST
+#   WS   :8766  → push live (ouvert par dashboard.html)
+#   UDP  :8767  → réception des Pulses ISAP
 
 name: isap
 
@@ -17,25 +20,31 @@ services:
     hostname: collector
     networks: [isap_net]
     ports:
-      - "5765:5765/udp"   # ISAP wire (depuis l'hôte si besoin)
-      - "8765:8765/tcp"   # WebSocket dashboard (browse: dashboard.html)
+      - "8767:8767/udp"    # Pulses ISAP  (agents → collecteur)
+      - "8765:8765/tcp"    # Dashboard HTTP  → http://localhost:8765
+      - "8766:8766/tcp"    # WebSocket live  → ws://localhost:8766
     volumes:
-      - ./:/isap                           # source live (dashboard_server.py)
+      - ./:/isap                           # source live
       - ./data:/isap/data                  # archives + métriques
     working_dir: /isap
     environment:
       - PYTHONUNBUFFERED=1
+      - ISAP_UDP_PORT=8767
+      - ISAP_HTTP_PORT=8765
+      - ISAP_WS_PORT=8766
       - ISAP_ARCHIVE_PATH=/isap/data/observations_phase2.jsonl
+      - ISAP_DATA_DIR=/isap/data
     command: >
       bash -c "pip install --quiet --no-cache-dir websockets &&
-               echo '[collector] starting' &&
+               echo '[collector] starting...' &&
                python3 -u dashboard_server.py"
     healthcheck:
       test: ["CMD", "python3", "-c",
-             "import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.sendto(b'',('127.0.0.1',5765))"]
-      interval: 5s
-      timeout: 2s
+             "import urllib.request; urllib.request.urlopen('http://localhost:8765/api/v1/status')"]
+      interval: 10s
+      timeout: 3s
       retries: 5
+      start_period: 15s
 
   agent_a:
     build: .
@@ -45,13 +54,13 @@ services:
     environment:
       - ISAP_NODE_ID=agent_a
       - ISAP_COLLECTOR_HOST=collector
-      - ISAP_COLLECTOR_PORT=5765
+      - ISAP_COLLECTOR_PORT=8767
       - ISAP_INTERVAL_S=1.0
-      - ISAP_WHISPER_S=1.0      # forcé en Phase 2 pour cadence homogène
+      - ISAP_WHISPER_S=1.0
       - ISAP_STORM_S=0.2
     depends_on:
       collector: { condition: service_started }
-    cap_add: [SYS_NICE]    # stress-ng demande SYS_NICE pour certains tests
+    cap_add: [SYS_NICE]
 
   agent_b:
     build: .
@@ -61,9 +70,9 @@ services:
     environment:
       - ISAP_NODE_ID=agent_b
       - ISAP_COLLECTOR_HOST=collector
-      - ISAP_COLLECTOR_PORT=5765
+      - ISAP_COLLECTOR_PORT=8767
       - ISAP_INTERVAL_S=1.0
-      - ISAP_WHISPER_S=1.0      # forcé en Phase 2 pour cadence homogène
+      - ISAP_WHISPER_S=1.0
       - ISAP_STORM_S=0.2
     depends_on:
       collector: { condition: service_started }
@@ -77,9 +86,9 @@ services:
     environment:
       - ISAP_NODE_ID=agent_c
       - ISAP_COLLECTOR_HOST=collector
-      - ISAP_COLLECTOR_PORT=5765
+      - ISAP_COLLECTOR_PORT=8767
       - ISAP_INTERVAL_S=1.0
-      - ISAP_WHISPER_S=1.0      # forcé en Phase 2 pour cadence homogène
+      - ISAP_WHISPER_S=1.0
       - ISAP_STORM_S=0.2
     depends_on:
       collector: { condition: service_started }

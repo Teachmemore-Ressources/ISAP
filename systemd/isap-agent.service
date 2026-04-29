@@ -23,7 +23,7 @@ Environment=ISAP_NODE_ID=my-node
 
 # Adresse du collecteur central (où tourne dashboard_server.py)
 Environment=ISAP_COLLECTOR_HOST=127.0.0.1
-Environment=ISAP_COLLECTOR_PORT=9999
+Environment=ISAP_COLLECTOR_PORT=8767
 
 # Cadence d'émission
 # WHISPER : nœud idle  → toutes les 5s

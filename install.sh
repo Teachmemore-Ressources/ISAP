@@ -7,9 +7,9 @@
 #   sudo bash install.sh
 #
 # Variables d'environnement (optionnelles, avant le sudo) :
-#   ISAP_HTTP_PORT   port HTTP du dashboard      (défaut : 9000)
-#   ISAP_WS_PORT     port WebSocket              (défaut : 9001)
-#   ISAP_UDP_PORT    port UDP réception pulses   (défaut : 9999)
+#   ISAP_HTTP_PORT   port HTTP du dashboard      (défaut : 8765)
+#   ISAP_WS_PORT     port WebSocket              (défaut : 8766)
+#   ISAP_UDP_PORT    port UDP réception pulses   (défaut : 8767)
 #   ISAP_NODE_ID     identifiant de ce nœud      (défaut : hostname)
 #   ISAP_COLLECTOR   adresse du collecteur       (défaut : 127.0.0.1)
 #
@@ -31,9 +31,9 @@ ISAP_DATA="/var/lib/isap"
 ISAP_LOG="/var/log/isap"
 ISAP_USER="isap"
 
-HTTP_PORT="${ISAP_HTTP_PORT:-9000}"
-WS_PORT="${ISAP_WS_PORT:-9001}"
-UDP_PORT="${ISAP_UDP_PORT:-9999}"
+HTTP_PORT="${ISAP_HTTP_PORT:-8765}"
+WS_PORT="${ISAP_WS_PORT:-8766}"
+UDP_PORT="${ISAP_UDP_PORT:-8767}"
 NODE_ID="${ISAP_NODE_ID:-$(hostname)}"
 COLLECTOR="${ISAP_COLLECTOR:-127.0.0.1}"
 
